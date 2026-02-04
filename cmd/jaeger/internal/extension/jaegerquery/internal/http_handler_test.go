@@ -447,25 +447,69 @@ func TestGetTraceBadTimeWindow(t *testing.T) {
 }
 
 func TestGetTraceWithRawTracesParameter(t *testing.T) {
-	// TODO: extend the test cases to ensure raw traces are obtained
-	// when the flag is set once the differentiating logic has been implemented
+	// Test that raw traces parameter affects trace processing:
+	// - raw=true: traces are returned without adjustment (attributes not sorted)
+	// - raw=false: traces are adjusted (attributes sorted)
 	tests := []struct {
-		rawTraces bool
+		rawTraces      bool
+		expectedSorted bool
+		testName       string
 	}{
-		{rawTraces: true},
-		{rawTraces: false},
+		{rawTraces: true, expectedSorted: false, testName: "raw=true should not sort attributes"},
+		{rawTraces: false, expectedSorted: true, testName: "raw=false should sort attributes"},
 	}
+
+	makeMockTraceWithUnsortedAttrs := func() ptrace.Traces {
+		trace := ptrace.NewTraces()
+		resources := trace.ResourceSpans().AppendEmpty()
+		resources.Resource().Attributes().PutStr("service.name", "service")
+		scopes := resources.ScopeSpans().AppendEmpty()
+
+		span := scopes.Spans().AppendEmpty()
+		span.SetTraceID(v1adapter.FromV1TraceID(mockTraceID))
+		span.SetSpanID(v1adapter.FromV1SpanID(model.NewSpanID(1)))
+		// Add attributes in reverse alphabetical order to test sorting
+		span.Attributes().PutStr("z_key", "value")
+		span.Attributes().PutStr("a_key", "value")
+
+		return trace
+	}
+
 	for _, test := range tests {
-		t.Run(fmt.Sprintf("rawTraces=%v", test.rawTraces), func(t *testing.T) {
+		t.Run(test.testName, func(t *testing.T) {
 			ts := initializeTestServer(t)
 			ts.traceReader.On("GetTraces", mock.Anything, mock.MatchedBy(func(params []tracestore.GetTraceParams) bool {
 				return len(params) == 1 && params[0].TraceID == v1adapter.FromV1TraceID(mockTraceID)
-			})).Return(tracesIter(makeMockPTrace())).Once()
+			})).Return(tracesIter(makeMockTraceWithUnsortedAttrs())).Once()
 
 			var response structuredResponse
 			err := getJSON(fmt.Sprintf("%s/api/traces/%s?raw=%v", ts.server.URL, mockTraceID.String(), test.rawTraces), &response)
 			require.NoError(t, err)
 			assert.Empty(t, response.Errors)
+
+			// Extract traces and verify attribute ordering
+			traces := extractTraces(t, &response)
+			require.Len(t, traces, 1)
+			require.Len(t, traces[0].Spans, 1)
+
+			span := traces[0].Spans[0]
+			require.Len(t, span.Tags, 2)
+
+			// Check if attributes are sorted
+			firstKey := span.Tags[0].Key
+			secondKey := span.Tags[1].Key
+
+			if test.expectedSorted {
+				// When raw=false, attributes should be sorted alphabetically
+				assert.Less(t, firstKey, secondKey,
+					"raw=%v: attributes should be sorted, but got %s before %s", test.rawTraces, firstKey, secondKey)
+			} else {
+				// When raw=true, attributes should maintain original order (z before a)
+				assert.Equal(t, "z_key", firstKey,
+					"raw=%v: attributes should not be sorted, expected z_key first", test.rawTraces)
+				assert.Equal(t, "a_key", secondKey,
+					"raw=%v: attributes should not be sorted, expected a_key second", test.rawTraces)
+			}
 		})
 	}
 }
