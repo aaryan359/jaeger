@@ -216,6 +216,7 @@ func (s *storageExt) TraceStorageFactory(name string) (tracestore.Factory, error
 		func(authCfg config.Authentication, backendType, backendName string) (extensionauth.HTTPClient, error) {
 			return s.resolveAuthenticator(s.telset.Host, authCfg, backendType, backendName)
 		},
+		s.config.Tenancy,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize storage '%s': %w", name, err)

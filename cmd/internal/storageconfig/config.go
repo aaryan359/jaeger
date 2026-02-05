@@ -20,6 +20,7 @@ import (
 	"github.com/jaegertracing/jaeger/internal/storage/v2/clickhouse"
 	"github.com/jaegertracing/jaeger/internal/storage/v2/grpc"
 	"github.com/jaegertracing/jaeger/internal/storage/v2/memory"
+	"github.com/jaegertracing/jaeger/internal/tenancy"
 )
 
 var (
@@ -31,6 +32,7 @@ var (
 type Config struct {
 	TraceBackends  map[string]TraceBackend  `mapstructure:"backends"`
 	MetricBackends map[string]MetricBackend `mapstructure:"metric_backends"`
+	Tenancy        tenancy.Options          `mapstructure:"multi_tenancy"`
 }
 
 // TraceBackend contains configuration for a single trace storage backend.
